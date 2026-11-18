@@ -1,0 +1,589 @@
+"""
+PROYECTO: SISTEMA INTEGRAL DE GESTION DE CLIENTES, SERVICIOS Y RESERVAS
+Empresa: Software FJ
+Lenguaje: Python 3
+Almacenamiento: listas en memoria (sin bases de datos)
+Registro: archivo software_fj.log
+
+Ejecucion:
+    python software_fj.py
+
+El programa ejecuta automaticamente una demostracion con mas de diez
+operaciones, incluyendo casos correctos e incorrectos.
+"""
+
+from abc import ABC, abstractmethod
+from datetime import datetime
+import logging
+from typing import Optional
+
+
+# ---------------------------------------------------------------------
+# CONFIGURACION DEL REGISTRO DE EVENTOS Y ERRORES
+# ---------------------------------------------------------------------
+
+logging.basicConfig(
+    filename="software_fj.log",
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    encoding="utf-8"
+)
+
+
+# ---------------------------------------------------------------------
+# EXCEPCIONES PERSONALIZADAS
+# ---------------------------------------------------------------------
+
+class ErrorSistema(Exception):
+    """Excepcion base para los errores controlados del sistema."""
+
+
+class ValidacionError(ErrorSistema):
+    """Se genera cuando un dato no cumple las validaciones."""
+
+
+class NoEncontradoError(ErrorSistema):
+    """Se genera cuando no existe un cliente, servicio o reserva."""
+
+
+class OperacionNoPermitidaError(ErrorSistema):
+    """Se genera cuando se intenta realizar una operacion no permitida."""
+
+
+class ServicioNoDisponibleError(ErrorSistema):
+    """Se genera cuando el servicio no esta disponible."""
+
+
+# ---------------------------------------------------------------------
+# CLASE ABSTRACTA ENTIDAD
+# ---------------------------------------------------------------------
+
+class Entidad(ABC):
+    """Representa una entidad general del sistema."""
+
+    def __init__(self, identificador: str, nombre: str):
+        if not isinstance(identificador, str) or not identificador.strip():
+            raise ValidacionError("El identificador es obligatorio.")
+        if not isinstance(nombre, str) or not nombre.strip():
+            raise ValidacionError("El nombre es obligatorio.")
+
+        self._identificador = identificador.strip()
+        self._nombre = nombre.strip()
+
+    @property
+    def identificador(self):
+        return self._identificador
+
+    @property
+    def nombre(self):
+        return self._nombre
+
+    @abstractmethod
+    def describir(self) -> str:
+        """Cada entidad debe proporcionar su propia descripcion."""
+
+
+# ---------------------------------------------------------------------
+# CLASE CLIENTE
+# ---------------------------------------------------------------------
+
+class Cliente(Entidad):
+    """Almacena y protege los datos personales de un cliente."""
+
+    def __init__(self, identificador: str, nombre: str,
+                 correo: str, telefono: str):
+        super().__init__(identificador, nombre)
+
+        if not isinstance(correo, str) or "@" not in correo or "." not in correo:
+            raise ValidacionError("El correo electronico no tiene un formato valido.")
+
+        if not isinstance(telefono, str) or not telefono.strip():
+            raise ValidacionError("El telefono es obligatorio.")
+
+        if not telefono.strip().replace("+", "").replace(" ", "").isdigit():
+            raise ValidacionError("El telefono solo debe contener numeros, espacios o +.")
+
+        self.__correo = correo.strip().lower()
+        self.__telefono = telefono.strip()
+
+    @property
+    def correo(self):
+        return self.__correo
+
+    @property
+    def telefono(self):
+        return self.__telefono
+
+    def describir(self) -> str:
+        return (
+            f"Cliente: {self.nombre} | ID: {self.identificador} | "
+            f"Correo: {self.correo} | Telefono: {self.telefono}"
+        )
+
+
+# ---------------------------------------------------------------------
+# CLASE ABSTRACTA SERVICIO
+# ---------------------------------------------------------------------
+
+class Servicio(Entidad, ABC):
+    """Clase general de la que heredan los servicios especializados."""
+
+    def __init__(self, identificador: str, nombre: str,
+                 precio_base: float, disponible: bool = True):
+        super().__init__(identificador, nombre)
+
+        if not isinstance(precio_base, (int, float)) or isinstance(precio_base, bool):
+            raise ValidacionError("El precio debe ser numerico.")
+        if precio_base <= 0:
+            raise ValidacionError("El precio debe ser mayor que cero.")
+
+        self._precio_base = float(precio_base)
+        self._disponible = bool(disponible)
+
+    @property
+    def precio_base(self):
+        return self._precio_base
+
+    @property
+    def disponible(self):
+        return self._disponible
+
+    def cambiar_disponibilidad(self, estado: bool):
+        if not isinstance(estado, bool):
+            raise ValidacionError("La disponibilidad debe ser verdadera o falsa.")
+        self._disponible = estado
+
+    @abstractmethod
+    def calcular_costo(self, cantidad: float = 1,
+                       impuesto: float = 0.19,
+                       descuento: float = 0.0) -> float:
+        pass
+
+    @abstractmethod
+    def validar_parametros(self, cantidad: float):
+        pass
+
+    def describir(self) -> str:
+        estado = "Disponible" if self.disponible else "No disponible"
+        return f"{self.nombre} | Precio base: ${self.precio_base:,.2f} | {estado}"
+
+
+# ---------------------------------------------------------------------
+# SERVICIO 1: RESERVA DE SALAS
+# ---------------------------------------------------------------------
+
+class ReservaSala(Servicio):
+
+    def validar_parametros(self, cantidad: float):
+        if cantidad <= 0:
+            raise ValidacionError("La cantidad de horas debe ser mayor que cero.")
+        if cantidad > 24:
+            raise ValidacionError("Una reserva de sala no puede superar 24 horas.")
+
+    def calcular_costo(self, cantidad: float = 1,
+                       impuesto: float = 0.19,
+                       descuento: float = 0.0) -> float:
+        self.validar_parametros(cantidad)
+        validar_condiciones_costo(impuesto, descuento)
+        subtotal = self.precio_base * cantidad
+        return subtotal * (1 + impuesto) * (1 - descuento)
+
+
+# ---------------------------------------------------------------------
+# SERVICIO 2: ALQUILER DE EQUIPOS
+# ---------------------------------------------------------------------
+
+class AlquilerEquipo(Servicio):
+
+    def validar_parametros(self, cantidad: float):
+        if cantidad <= 0:
+            raise ValidacionError("La cantidad de dias debe ser mayor que cero.")
+        if cantidad > 30:
+            raise ValidacionError("El alquiler no puede superar 30 dias.")
+
+    def calcular_costo(self, cantidad: float = 1,
+                       impuesto: float = 0.19,
+                       descuento: float = 0.0) -> float:
+        self.validar_parametros(cantidad)
+        validar_condiciones_costo(impuesto, descuento)
+        subtotal = self.precio_base * cantidad
+        return subtotal * (1 + impuesto) * (1 - descuento)
+
+
+# ---------------------------------------------------------------------
+# SERVICIO 3: ASESORIAS ESPECIALIZADAS
+# ---------------------------------------------------------------------
+
+class Asesoria(Servicio):
+
+    def validar_parametros(self, cantidad: float):
+        if cantidad <= 0:
+            raise ValidacionError("La cantidad de horas de asesoria debe ser positiva.")
+        if cantidad > 40:
+            raise ValidacionError("La asesoria no puede superar 40 horas.")
+
+    def calcular_costo(self, cantidad: float = 1,
+                       impuesto: float = 0.19,
+                       descuento: float = 0.0) -> float:
+        self.validar_parametros(cantidad)
+        validar_condiciones_costo(impuesto, descuento)
+        subtotal = self.precio_base * cantidad
+        return subtotal * (1 + impuesto) * (1 - descuento)
+
+
+def validar_condiciones_costo(impuesto: float, descuento: float):
+    """Valida los parametros compartidos por los metodos de costos."""
+    if not isinstance(impuesto, (int, float)) or not 0 <= impuesto <= 1:
+        raise ValidacionError("El impuesto debe estar entre 0 y 1.")
+    if not isinstance(descuento, (int, float)) or not 0 <= descuento <= 1:
+        raise ValidacionError("El descuento debe estar entre 0 y 1.")
+
+
+# ---------------------------------------------------------------------
+# CLASE RESERVA
+# ---------------------------------------------------------------------
+
+class Reserva:
+    """Relaciona un cliente con un servicio y controla su estado."""
+
+    ESTADOS_VALIDOS = ("Pendiente", "Confirmada", "Cancelada")
+
+    def __init__(self, identificador: str, cliente: Cliente,
+                 servicio: Servicio, duracion: float):
+        if not isinstance(identificador, str) or not identificador.strip():
+            raise ValidacionError("El codigo de reserva es obligatorio.")
+        if not isinstance(cliente, Cliente):
+            raise ValidacionError("Debe seleccionar un cliente valido.")
+        if not isinstance(servicio, Servicio):
+            raise ValidacionError("Debe seleccionar un servicio valido.")
+        if not isinstance(duracion, (int, float)) or isinstance(duracion, bool):
+            raise ValidacionError("La duracion debe ser numerica.")
+
+        servicio.validar_parametros(float(duracion))
+
+        if not servicio.disponible:
+            raise ServicioNoDisponibleError(
+                f"El servicio '{servicio.nombre}' no esta disponible."
+            )
+
+        self._identificador = identificador.strip()
+        self._cliente = cliente
+        self._servicio = servicio
+        self._duracion = float(duracion)
+        self._estado = "Pendiente"
+        self._fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
+    def identificador(self):
+        return self._identificador
+
+    @property
+    def cliente(self):
+        return self._cliente
+
+    @property
+    def servicio(self):
+        return self._servicio
+
+    @property
+    def duracion(self):
+        return self._duracion
+
+    @property
+    def estado(self):
+        return self._estado
+
+    def confirmar(self):
+        if self._estado == "Cancelada":
+            raise OperacionNoPermitidaError(
+                "No se puede confirmar una reserva cancelada."
+            )
+        if self._estado == "Confirmada":
+            raise OperacionNoPermitidaError("La reserva ya esta confirmada.")
+        self._estado = "Confirmada"
+        logging.info("Reserva %s confirmada.", self.identificador)
+
+    def cancelar(self):
+        if self._estado == "Cancelada":
+            raise OperacionNoPermitidaError("La reserva ya esta cancelada.")
+        self._estado = "Cancelada"
+        logging.info("Reserva %s cancelada.", self.identificador)
+
+    def procesar(self, impuesto: float = 0.19,
+                 descuento: float = 0.0) -> float:
+        try:
+            if self._estado == "Cancelada":
+                raise OperacionNoPermitidaError(
+                    "No se puede procesar una reserva cancelada."
+                )
+            costo = self.servicio.calcular_costo(
+                self.duracion, impuesto, descuento
+            )
+            logging.info(
+                "Reserva %s procesada. Total: %.2f",
+                self.identificador, costo
+            )
+            return costo
+        except ErrorSistema as error:
+            logging.exception("Error al procesar reserva %s.", self.identificador)
+            raise ErrorSistema(
+                f"No fue posible procesar la reserva {self.identificador}."
+            ) from error
+
+    def describir(self):
+        return (
+            f"Reserva {self.identificador} | Cliente: {self.cliente.nombre} | "
+            f"Servicio: {self.servicio.nombre} | Duracion: {self.duracion} | "
+            f"Estado: {self.estado} | Fecha: {self._fecha}"
+        )
+
+
+# ---------------------------------------------------------------------
+# CLASE ADMINISTRADORA DEL SISTEMA
+# ---------------------------------------------------------------------
+
+class SistemaSoftwareFJ:
+    """Administra las listas internas de clientes, servicios y reservas."""
+
+    def __init__(self):
+        self.clientes = []
+        self.servicios = []
+        self.reservas = []
+
+    def registrar_cliente(self, cliente: Cliente):
+        if not isinstance(cliente, Cliente):
+            raise ValidacionError("El objeto enviado no es un cliente.")
+        if any(c.identificador == cliente.identificador for c in self.clientes):
+            raise OperacionNoPermitidaError("Ya existe un cliente con ese ID.")
+        self.clientes.append(cliente)
+        logging.info("Cliente registrado: %s", cliente.identificador)
+        return cliente
+
+    def registrar_servicio(self, servicio: Servicio):
+        if not isinstance(servicio, Servicio):
+            raise ValidacionError("El objeto enviado no es un servicio.")
+        if any(s.identificador == servicio.identificador for s in self.servicios):
+            raise OperacionNoPermitidaError("Ya existe un servicio con ese ID.")
+        self.servicios.append(servicio)
+        logging.info("Servicio registrado: %s", servicio.identificador)
+        return servicio
+
+    def crear_reserva(self, identificador: str, id_cliente: str,
+                      id_servicio: str, duracion: float):
+        cliente = self.buscar_cliente(id_cliente)
+        servicio = self.buscar_servicio(id_servicio)
+
+        if any(r.identificador == identificador for r in self.reservas):
+            raise OperacionNoPermitidaError("El codigo de reserva ya existe.")
+
+        reserva = Reserva(identificador, cliente, servicio, duracion)
+        self.reservas.append(reserva)
+        logging.info("Reserva creada: %s", identificador)
+        return reserva
+
+    def buscar_cliente(self, identificador: str) -> Cliente:
+        for cliente in self.clientes:
+            if cliente.identificador == identificador:
+                return cliente
+        raise NoEncontradoError(f"No existe el cliente {identificador}.")
+
+    def buscar_servicio(self, identificador: str) -> Servicio:
+        for servicio in self.servicios:
+            if servicio.identificador == identificador:
+                return servicio
+        raise NoEncontradoError(f"No existe el servicio {identificador}.")
+
+    def buscar_reserva(self, identificador: str) -> Reserva:
+        for reserva in self.reservas:
+            if reserva.identificador == identificador:
+                return reserva
+        raise NoEncontradoError(f"No existe la reserva {identificador}.")
+
+    def listar_clientes(self):
+        return [cliente.describir() for cliente in self.clientes]
+
+    def listar_servicios(self):
+        return [servicio.describir() for servicio in self.servicios]
+
+    def listar_reservas(self):
+        return [reserva.describir() for reserva in self.reservas]
+
+    # Variantes del calculo de costos: cantidad, cantidad + impuesto,
+    # o cantidad + impuesto + descuento. Es sobrecarga simulada mediante
+    # parametros opcionales, ya que Python no usa sobrecarga tradicional.
+    def calcular_costo(self, id_servicio: str, cantidad: float = 1,
+                       impuesto: float = 0.19,
+                       descuento: float = 0.0) -> float:
+        servicio = self.buscar_servicio(id_servicio)
+        return servicio.calcular_costo(cantidad, impuesto, descuento)
+
+
+# ---------------------------------------------------------------------
+# FUNCIONES DE APOYO PARA LAS PRUEBAS
+# ---------------------------------------------------------------------
+
+def ejecutar_operacion(numero: int, descripcion: str, funcion):
+    """Ejecuta una operacion sin detener el resto de la demostracion."""
+    print(f"\nOPERACION {numero}: {descripcion}")
+    try:
+        resultado = funcion()
+    except ErrorSistema as error:
+        logging.error("Operacion %s: %s", numero, error)
+        print(f"ERROR CONTROLADO: {error}")
+    except (TypeError, ValueError) as error:
+        logging.exception("Error de tipo o valor en operacion %s.", numero)
+        print(f"ERROR DE DATOS: {error}")
+    except Exception as error:
+        logging.exception("Error inesperado en operacion %s.", numero)
+        print(f"ERROR INESPERADO CONTROLADO: {error}")
+    else:
+        logging.info("Operacion %s ejecutada correctamente.", numero)
+        if resultado is not None:
+            print(resultado)
+        else:
+            print("Operacion realizada correctamente.")
+    finally:
+        print("Fin de la operacion. El sistema continua activo.")
+
+
+def demostracion():
+    """Ejecuta mas de diez operaciones validas e invalidas."""
+
+    sistema = SistemaSoftwareFJ()
+
+    print("=" * 72)
+    print("       SISTEMA INTEGRAL DE GESTION - SOFTWARE FJ")
+    print("=" * 72)
+
+    # 1. Registro valido de cliente.
+    ejecutar_operacion(
+        1, "Registrar un cliente valido",
+        lambda: sistema.registrar_cliente(
+            Cliente("C001", "Laura Gomez", "laura@gmail.com", "3001234567")
+        ).describir()
+    )
+
+    # 2. Registro de otro cliente.
+    ejecutar_operacion(
+        2, "Registrar un segundo cliente",
+        lambda: sistema.registrar_cliente(
+            Cliente("C002", "Carlos Perez", "carlos@gmail.com", "3107654321")
+        ).describir()
+    )
+
+    # 3. Intento de registro con correo invalido.
+    ejecutar_operacion(
+        3, "Intentar registrar un cliente con correo invalido",
+        lambda: sistema.registrar_cliente(
+            Cliente("C003", "Ana Ruiz", "correo_incorrecto", "3123456789")
+        )
+    )
+
+    # 4. Crear servicio de sala.
+    ejecutar_operacion(
+        4, "Crear servicio de reserva de salas",
+        lambda: sistema.registrar_servicio(
+            ReservaSala("S001", "Sala de reuniones", 50000)
+        ).describir()
+    )
+
+    # 5. Crear servicio de alquiler de equipos.
+    ejecutar_operacion(
+        5, "Crear servicio de alquiler de equipos",
+        lambda: sistema.registrar_servicio(
+            AlquilerEquipo("S002", "Alquiler de computador", 35000)
+        ).describir()
+    )
+
+    # 6. Crear servicio de asesoria.
+    ejecutar_operacion(
+        6, "Crear servicio de asesoria especializada",
+        lambda: sistema.registrar_servicio(
+            Asesoria("S003", "Asesoria de software", 80000)
+        ).describir()
+    )
+
+    # 7. Intentar crear un servicio con precio incorrecto.
+    ejecutar_operacion(
+        7, "Intentar crear un servicio con precio negativo",
+        lambda: sistema.registrar_servicio(
+            ReservaSala("S004", "Sala invalida", -10000)
+        )
+    )
+
+    # 8. Crear una reserva correcta.
+    ejecutar_operacion(
+        8, "Crear una reserva valida",
+        lambda: sistema.crear_reserva("R001", "C001", "S001", 2).describir()
+    )
+
+    # 9. Confirmar la reserva.
+    ejecutar_operacion(
+        9, "Confirmar la reserva R001",
+        lambda: (sistema.buscar_reserva("R001").confirmar(),
+                 "Reserva confirmada.")[1]
+    )
+
+    # 10. Calcular costo con impuesto y descuento.
+    ejecutar_operacion(
+        10, "Calcular costo de sala con impuesto y descuento",
+        lambda: f"Total: ${sistema.calcular_costo('S001', 2, 0.19, 0.10):,.2f}"
+    )
+
+    # 11. Intentar crear reserva con cliente inexistente.
+    ejecutar_operacion(
+        11, "Crear reserva con cliente que no existe",
+        lambda: sistema.crear_reserva("R002", "C999", "S001", 1)
+    )
+
+    # 12. Intentar crear reserva con duracion invalida.
+    ejecutar_operacion(
+        12, "Crear reserva con duracion negativa",
+        lambda: sistema.crear_reserva("R003", "C002", "S002", -3)
+    )
+
+    # 13. Cancelar una reserva.
+    ejecutar_operacion(
+        13, "Cancelar la reserva R001",
+        lambda: (sistema.buscar_reserva("R001").cancelar(),
+                 "Reserva cancelada.")[1]
+    )
+
+    # 14. Intentar procesar una reserva cancelada: demuestra encadenamiento.
+    ejecutar_operacion(
+        14, "Intentar procesar una reserva cancelada",
+        lambda: sistema.buscar_reserva("R001").procesar()
+    )
+
+    # 15. Mostrar clientes, servicios y reservas.
+    ejecutar_operacion(
+        15, "Consultar todos los clientes",
+        lambda: "\n".join(sistema.listar_clientes())
+    )
+    ejecutar_operacion(
+        16, "Consultar todos los servicios",
+        lambda: "\n".join(sistema.listar_servicios())
+    )
+    ejecutar_operacion(
+        17, "Consultar todas las reservas",
+        lambda: "\n".join(sistema.listar_reservas())
+    )
+
+    print("\n" + "=" * 72)
+    print("DEMOSTRACION FINALIZADA.")
+    print("El sistema continuo funcionando despues de los errores.")
+    print("Revise el archivo software_fj.log para consultar los registros.")
+    print("=" * 72)
+
+
+if __name__ == "__main__":
+    try:
+        demostracion()
+    except KeyboardInterrupt:
+        logging.warning("La ejecucion fue interrumpida por el usuario.")
+        print("\nEjecucion interrumpida de forma segura.")
+    except Exception as error:
+        logging.exception("Error critico controlado en el programa principal.")
+        print(f"Se controlo un error general: {error}")
+    finally:
+        logging.info("Fin de la ejecucion de Software FJ.")
